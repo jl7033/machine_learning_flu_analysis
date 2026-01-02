@@ -177,7 +177,11 @@ plot_list[[6]] = severe_flu |>
   theme_bw() + 
   guides(fill = FALSE)
 
-plot_grid(plotlist = plot_list)
+eda_plots = plot_grid(plotlist = plot_list)
+
+eda_plots
+
+save_plot("Output/exploratory_graphs.pdf", eda_plots, ncol = 3, base_height = 8)
 
 ```
 
@@ -257,7 +261,11 @@ flu_boost_fit = train(severe_flu ~ .,
 
 ```{r}
 
-ggplot(flu_boost_fit, highlight = TRUE)
+boost_param_plot = ggplot(flu_boost_fit, highlight = TRUE)
+
+boost_param_plot
+
+ggsave("Output/boost_param_plot.pdf", plot = boost_param_plot)
 
 ```
 
@@ -265,7 +273,12 @@ ggplot(flu_boost_fit, highlight = TRUE)
 
 ```{r}
 
-summary(flu_boost_fit$finalModel, las = 2, cBars = 19, cex.names = 0.6)
+pdf("Output/var_importance_plot.pdf", width = 8, height = 6)
+
+var_importance_plot = summary(flu_boost_fit$finalModel, las = 2, cBars = 19, cex.names = 0.6)
+var_importance_plot
+
+dev.off()
 
 ```
 
@@ -289,8 +302,14 @@ flu_svm_linear_fit_1 = train(severe_flu ~ .,
 
 ```{r}
 
-plot(flu_svm_linear_fit_1, transform.y = log, transform.x = log,
+pdf("Output/svm_linear_performance.pdf", width = 8, height = 6)
+
+svm_linear_performance = plot(flu_svm_linear_fit_1, transform.y = log, transform.x = log,
      color.palette = terrain.colors)
+
+svm_linear_performance
+
+dev.off()
 
 ```
 
@@ -314,8 +333,14 @@ flu_svm_radial_fit = train(severe_flu ~ .,
 
 ```{r}
 
-plot(flu_svm_radial_fit, transform.y = log, transform.x = log,
+pdf("Output/svm_radial_performance.pdf", width = 8, height = 6)
+
+svm_radial_performance = plot(flu_svm_radial_fit, transform.y = log, transform.x = log,
      color.palette = terrain.colors)
+
+svm_radial_performance
+
+dev.off()
 
 ```
 
@@ -334,7 +359,13 @@ resamp = caret::resamples(
   )
 )
 
-bwplot(resamp, metric = "ROC")
+pdf("Output/cv_auc_comparison.pdf", width = 8, height = 6)
+
+cv_auc_comparison = bwplot(resamp, metric = "ROC")
+
+cv_auc_comparison
+
+dev.off()
 
 ```
 
@@ -368,10 +399,14 @@ severe_flu_test$severe_flu = as.numeric(severe_flu_test$severe_flu)
 
 roc_obj = roc(pred_logr_class, severe_flu_test$severe_flu)
 
+pdf("Output/final_model_auc.pdf", width = 8, height = 6)
+
 plot(roc_obj)
 auc_value <- auc(roc_obj)
 legend("bottomright", legend = paste("AUC =", round(auc_value, 3)),
        col = "black", lwd = 2, box.lty = 0)
+
+dev.off()
 
 ```
 

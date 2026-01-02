@@ -1,0 +1,377 @@
+---
+title: "P8106 - Final Project"
+author: "Joe LaRocca"
+date: "2025-05-05"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+library(openxlsx)
+library(caret)
+library(caTools)
+library(gbm)
+library(mlbench)
+library(ISLR)
+library(tidymodels)
+library(e1071)
+library(kernlab) 
+library(ggrepel)
+library(factoextra)
+library(gridExtra)
+library(corrplot)
+library(RColorBrewer)
+library(gplots)
+library(jpeg)
+library(pROC)
+```
+
+## Upload Data
+
+```{r}
+
+severe_flu = read_csv("severe_flu.csv") |>
+  select(-id) |>
+  mutate(
+    race = case_match(
+      race,
+      1 ~ "White",
+      2 ~ "Asian",
+      3 ~ "Black",
+      4 ~ "Hispanic"
+      ),
+    gender = case_match(
+      gender,
+      1 ~ "Male",
+      0 ~ "Female"
+    ),
+    smoking = case_match(
+      smoking, 
+      2 ~ "Current",
+      1 ~ "Former",
+      0 ~ "Never"
+    ),
+    diabetes = case_match(
+      diabetes,
+      1 ~ "Yes",
+      0 ~ "No",
+    ),
+    hypertension = case_match(
+      hypertension,
+      1 ~ "Yes",
+      0 ~ "No"
+    )
+  ) |> mutate(race = factor(race),
+         gender = factor(gender),
+         smoking = factor(smoking),
+         diabetes = factor(diabetes),
+         hypertension = factor(hypertension),
+         severe_flu = factor(severe_flu))
+
+```
+
+\pagebreak
+
+## Exploratory Analysis
+
+### Summary Statistics Table (Quantitative)
+
+```{r}
+
+summ_stats_quant = tibble(
+  summary(severe_flu$age),
+  summary(severe_flu$height),
+  summary(severe_flu$weight),
+  summary(severe_flu$bmi),
+  summary(severe_flu$SBP),
+  summary(severe_flu$LDL)
+) |> 
+  t()
+
+rownames(summ_stats_quant) = c("Age", "Height", "Weight",
+                               "BMI", "Systolic Blood Pressure",
+                               "LDL Cholesterol")
+
+colnames(summ_stats_quant) = c("Min", "Q1", "Median", "Mean", "Q3", "Max")
+
+wb_quant = openxlsx::createWorkbook()
+openxlsx::addWorksheet(wb_quant, sheetName = "Quant. Summary Stats")
+
+openxlsx::writeData(wb_quant, sheet = "Quant. Summary Stats", x = summ_stats_quant)
+
+openxlsx::saveWorkbook(wb_quant,
+                       here::here("summ_stats_quant.xlsx"),
+                       overwrite = TRUE)
+
+
+
+```
+
+### Summary Statistics Table (Categorical)
+
+```{r}
+
+plot_list = list()
+
+plot_list[[1]] =  severe_flu |>
+  ggplot(aes(x = severe_flu, fill = severe_flu)) + 
+  geom_bar() + 
+  labs(
+    x = "Severe Flu",
+    y = "Frequency"
+  ) + 
+  theme_bw() + 
+  guides(fill = FALSE)
+
+plot_list[[2]] = severe_flu |>
+  ggplot(aes(x = race, fill = race)) + 
+  geom_bar() + 
+  labs(
+    x = "Race",
+    y = "Frequency"
+  ) + 
+  theme_bw() + 
+  guides(fill = FALSE)
+
+plot_list[[3]] = severe_flu |>
+  ggplot(aes(x = gender, fill = gender)) + 
+  geom_bar() + 
+  labs(
+    x = "Gender",
+    y = "Frequency"
+  ) + 
+  theme_bw() + 
+  guides(fill = FALSE)
+
+plot_list[[4]] = severe_flu |>
+  ggplot(aes(x = smoking, fill = smoking)) + 
+  geom_bar() + 
+  labs(
+    x = "Smoking Status",
+    y = "Frequency"
+  ) + 
+  theme_bw() + 
+  guides(fill = FALSE)
+
+plot_list[[5]] = severe_flu |>
+  ggplot(aes(x = diabetes, fill = diabetes)) + 
+  geom_bar() + 
+  labs(
+    x = "Diabetes Status",
+    y = "Frequency"
+  ) + 
+  theme_bw() + 
+  guides(fill = FALSE)
+
+plot_list[[6]] = severe_flu |>
+  ggplot(aes(x = hypertension, fill = hypertension)) + 
+  geom_bar() + 
+  labs(
+    x = "Hypertension Status",
+    y = "Frequency"
+  ) + 
+  theme_bw() + 
+  guides(fill = FALSE)
+
+plot_grid(plotlist = plot_list)
+
+```
+
+\pagebreak
+
+## Model Training
+
+### Split Data
+
+```{r}
+
+split = sample.split(severe_flu$severe_flu, SplitRatio = 0.8)
+
+severe_flu_train = subset(severe_flu, split == TRUE)
+severe_flu_test = subset(severe_flu, split == FALSE)
+
+```
+
+### Simple Logistic Regression
+
+#### Create Model + Summary
+
+```{r}
+
+set.seed(2025)
+
+ctrl = trainControl(number = 10, 
+                          method = "cv",
+                          classProbs = TRUE,
+                          summaryFunction = twoClassSummary)
+
+severe_flu_train_logr = severe_flu_train
+
+severe_flu_train_logr$severe_flu = as.factor(severe_flu_train_logr$severe_flu)
+levels(severe_flu_train_logr$severe_flu) = c("No", "Yes")
+
+flu_logr_fit = train(
+  severe_flu ~ .,
+  data = severe_flu_train_logr,
+  method = "glm",
+  family = "binomial",
+  trControl = ctrl
+)
+
+summary(flu_logr_fit$finalModel)
+
+```
+
+
+### Boosting
+
+#### Run CV
+
+```{r}
+
+set.seed(2025)
+
+severe_flu_train$severe_flu = as.factor(severe_flu_train$severe_flu)
+levels(severe_flu_train$severe_flu) = c("No", "Yes")
+
+gbm_grid <- expand.grid(n.trees = c(100, 200, 500, 1000, 2000),
+                        interaction.depth = 1:4,
+                        shrinkage = c(0.005, 0.01, 0.05),
+                        n.minobsinnode = c(10))
+
+flu_boost_fit = train(severe_flu ~ .,
+                        data = severe_flu_train,
+                        method = "gbm",
+                        tuneGrid = gbm_grid,
+                        trControl = ctrl, 
+                        metric = "ROC",
+                        verbose = FALSE)
+
+```
+
+#### Use Plot to Select Optimal Parameters
+
+```{r}
+
+ggplot(flu_boost_fit, highlight = TRUE)
+
+```
+
+#### Variable Importance Plot
+
+```{r}
+
+summary(flu_boost_fit$finalModel, las = 2, cBars = 19, cex.names = 0.6)
+
+```
+
+### Linear SVM
+
+#### Create Model Using kernlab
+
+```{r}
+
+set.seed(2025)
+
+flu_svm_linear_fit_1 = train(severe_flu ~ .,
+                           data = severe_flu_train,
+                           method = "svmLinear",
+                           tuneGrid = data.frame(C = exp(seq(-5, 2, len = 50))),
+                           trControl = ctrl)
+
+```
+
+#### Plot of SVM Performance 1
+
+```{r}
+
+plot(flu_svm_linear_fit_1, transform.y = log, transform.x = log,
+     color.palette = terrain.colors)
+
+```
+
+### Radial SVM
+
+#### Create Model
+
+```{r}
+
+set.seed(2025)
+
+flu_svm_radial_fit = train(severe_flu ~ .,
+                           data = severe_flu_train,
+                           method = "svmRadialCost",
+                           tuneGrid = data.frame(C = exp(seq(-5, 2, len = 20))),
+                           trControl = ctrl)
+
+```
+
+#### Plot of SVM Performance
+
+```{r}
+
+plot(flu_svm_radial_fit, transform.y = log, transform.x = log,
+     color.palette = terrain.colors)
+
+```
+
+### Comparing CV AUCs
+
+```{r}
+
+set.seed(2025)
+
+resamp = caret::resamples(
+  list(
+  glm = flu_logr_fit,
+  boost = flu_boost_fit,
+  svm_linear = flu_svm_linear_fit_1,
+  svm_radial = flu_svm_radial_fit
+  )
+)
+
+bwplot(resamp, metric = "ROC")
+
+```
+
+\pagebreak
+
+## Analyzing Final Model
+
+```{r}
+
+summary(flu_logr_fit$finalModel)
+
+```
+
+### Predictions
+
+```{r}
+
+pred_logr = predict(flu_logr_fit, newdata = severe_flu_test, type = "prob")
+
+pred_logr_class = as.numeric(pred_logr[,2] > 0.5)
+
+mean(pred_logr_class == severe_flu_test$severe_flu)
+
+```
+
+### ROC Curve
+
+```{r}
+
+severe_flu_test$severe_flu = as.numeric(severe_flu_test$severe_flu)
+
+roc_obj = roc(pred_logr_class, severe_flu_test$severe_flu)
+
+plot(roc_obj)
+auc_value <- auc(roc_obj)
+legend("bottomright", legend = paste("AUC =", round(auc_value, 3)),
+       col = "black", lwd = 2, box.lty = 0)
+
+```
+

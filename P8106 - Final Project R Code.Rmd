@@ -34,7 +34,7 @@ library(pROC)
 
 ```{r}
 
-severe_flu = read_csv("severe_flu.csv") |>
+severe_flu = read_csv("Data/severe_flu.csv") |>
   select(-id) |>
   mutate(
     race = case_match(
